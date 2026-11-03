@@ -1,0 +1,43 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node-version: ["20", "22", "24"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+      - name: 算法与绘制验证
+        run: node test/verify.mjs
+      - name: 单文件自包含检查
+        shell: bash
+        # 这个项目的卖点是「双击就能用」，所以不能有任何外部引用：
+        # 一旦引入 CDN 脚本、外链样式或远程字体，离线打开就会坏掉。
+        run: |
+          node --input-type=module - <<'JS'
+          import { readFileSync } from 'node:fs';
+          const html = readFileSync('index.html', 'utf8');
+          const external = [...html.matchAll(/(?:src|href)\s*=\s*["'](https?:)?\/\//gi)];
+          if (external.length) {
+            console.error('发现外部引用：', external.map((m) => m[0]));
+            process.exit(1);
+          }
+          if (!/<script>/.test(html)) {
+            console.error('页面里没有内联脚本');
+            process.exit(1);
+          }
+          console.log(`自包含检查通过：${(html.length / 1024).toFixed(1)} KB，无外部依赖`);
+          JS
